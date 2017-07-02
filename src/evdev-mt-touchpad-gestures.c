@@ -24,12 +24,13 @@
 #include "config.h"
 
 #include <math.h>
+#include <tgmath.h>
 #include <stdbool.h>
 #include <limits.h>
 
 #include "evdev-mt-touchpad.h"
 
-#define DEFAULT_GESTURE_SWITCH_TIMEOUT ms2us(100)
+#define DEFAULT_GESTURE_SWITCH_TIMEOUT ms2us(150)
 #define DEFAULT_GESTURE_2FG_SCROLL_TIMEOUT ms2us(150)
 
 static inline const char*
@@ -179,7 +180,7 @@ tp_gesture_get_active_touches(const struct tp_dispatch *tp,
 	return n;
 }
 
-static uint32_t
+static double
 tp_gesture_get_direction(struct tp_dispatch *tp, struct tp_touch *touch,
 			 unsigned int nfingers)
 {
@@ -192,10 +193,11 @@ tp_gesture_get_direction(struct tp_dispatch *tp, struct tp_touch *touch,
 	delta = device_delta(touch->point, touch->gesture.initial);
 	mm = tp_phys_delta(tp, delta);
 
-	if (length_in_mm(mm) < move_threshold)
-		return UNDEFINED_DIRECTION;
+	if (length_in_mm(mm) < move_threshold || length_in_mm(mm)>20.0)
+		return -1000;
+	return atan2(mm.y, mm.x)*180/3.14159265;
 
-	return phys_get_direction(mm);
+
 }
 
 static void
@@ -294,7 +296,7 @@ tp_gesture_handle_state_none(struct tp_dispatch *tp, uint64_t time)
 }
 
 static inline int
-tp_gesture_same_directions(int dir1, int dir2)
+tp_gesture_same_directions(double dir1, double dir2)
 {
 	/*
 	 * In some cases (semi-mt touchpads) we may seen one finger move
@@ -303,10 +305,15 @@ tp_gesture_same_directions(int dir1, int dir2)
 	 * The ((dira & 0x80) && (dirb & 0x01)) checks are to check for bit 0
 	 * and 7 being set as they also represent neighboring directions.
 	 */
-	return ((dir1 | (dir1 >> 1)) & dir2) ||
-		((dir2 | (dir2 >> 1)) & dir1) ||
-		((dir1 & 0x80) && (dir2 & 0x01)) ||
-		((dir2 & 0x80) && (dir1 & 0x01));
+	double dir = abs(dir1 - dir2)%180;
+	if(dir < 50) 
+	{
+		
+		return 1;
+	}
+
+	return 0;
+
 }
 
 static inline void
@@ -324,7 +331,7 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 {
 	struct tp_touch *first = tp->gesture.touches[0],
 			*second = tp->gesture.touches[1];
-	uint32_t dir1, dir2;
+	double dir1, dir2;
 	int yres = tp->device->abs.absinfo_y->resolution;
 	int vert_distance;
 
@@ -339,6 +346,7 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 		/* for 3+ finger gestures, check if one finger is > 20mm
 		   below the others */
 		vert_distance = abs(first->point.y - second->point.y);
+		printf("\n%i\n", vert_distance);
 		if (vert_distance > 20 * yres &&
 		    tp->gesture.enabled) {
 			tp_gesture_init_pinch(tp);
@@ -351,12 +359,13 @@ tp_gesture_handle_state_unknown(struct tp_dispatch *tp, uint64_t time)
 	/* Else wait for both fingers to have moved */
 	dir1 = tp_gesture_get_direction(tp, first, tp->gesture.finger_count);
 	dir2 = tp_gesture_get_direction(tp, second, tp->gesture.finger_count);
-	if (dir1 == UNDEFINED_DIRECTION || dir2 == UNDEFINED_DIRECTION)
+	
+	if (dir1 < -400 || dir2 < -400)
 		return GESTURE_STATE_UNKNOWN;
 
 	/* If both touches are moving in the same direction assume
 	 * scroll or swipe */
-	if (tp_gesture_same_directions(dir1, dir2)) {
+	if (tp_gesture_same_directions(dir1, dir2) &&  abs(first->point.x - second->point.y)< 30 * yres) {
 		if (tp->gesture.finger_count == 2) {
 			tp_gesture_set_scroll_buildup(tp);
 			return GESTURE_STATE_SCROLL;
