@@ -734,7 +734,7 @@ xy_get_direction(double x, double y)
 	int d1, d2;
 	double r;
 
-	if (fabs(x) < 0.2 && fabs(y) < 0.2) {
+	if (fabs(x) < 2.0 && fabs(y) < 2.0) {
 		if (x > 0.0 && y > 0.0)
 			dir = S | SE | E;
 		else if (x > 0.0 && y < 0.0)
@@ -752,7 +752,6 @@ xy_get_direction(double x, double y)
 		else if (y < 0.0)
 			dir = NE | N | NW;
 	} else {
-		return dir;
 		/* Calculate r within the interval  [0 to 8)
 		 *
 		 * r = [0 .. 2π] where 0 is North
